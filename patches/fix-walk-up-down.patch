@@ -1,0 +1,102 @@
+--- a/src/components/VillageGround.tsx
++++ b/src/components/VillageGround.tsx
+@@ -2512,8 +2512,10 @@
+   const phi = player.moving ? player.walkCycle : 0;
+   const idleBreath = !player.moving && Math.floor(nowMs / 520) % 2 === 1 ? -1 : 0;
+   // Calm, natural human walking vertical glide (not a running bounce!)
+-  const bobY = player.moving ? Math.round(-Math.abs(Math.cos(phi)) * 1.2) : idleBreath;
+-  const hairBounceY = player.moving ? Math.round(-Math.abs(Math.cos(phi - 0.55)) * 1.0) : 0;
++  // Slightly stronger bob on vertical walks so up/down feels as lively as left/right
++  const bobAmp = player.dir === "up" || player.dir === "down" ? 1.7 : 1.2;
++  const bobY = player.moving ? Math.round(-Math.abs(Math.cos(phi)) * bobAmp) : idleBreath;
++  const hairBounceY = player.moving ? Math.round(-Math.abs(Math.cos(phi - 0.55)) * (bobAmp > 1.2 ? 1.35 : 1.0)) : 0;
+ 
+   // Integer Pixel Buffer (45 × 64) so every limb & body part renders as razor-sharp pixel art
+   const GW = 45;
+@@ -2933,13 +2935,14 @@
+       const shY = -28 + bobY;
+       // True pendulum angle (`thetaUpper`, `thetaFore`): horizontal wave (`Math.sin`) with natural constant arm length (`Math.cos`)
+       // so hands wave smoothly ("melambai") and NEVER pump up and down!
+-      const thetaUpper = s * 0.42 + side * 0.22;
+-      const elbowX = shX + Math.sin(thetaUpper) * 5.6;
+-      const elbowY = shY + Math.cos(thetaUpper) * 5.6;
+-
+-      const thetaFore = s * 0.56 + side * 0.14;
+-      const wristX = elbowX + Math.sin(thetaFore) * 5.2;
+-      const wristY = elbowY + Math.cos(thetaFore) * 5.2;
++      // Stronger pendulum (closer to side-view energy) while keeping constant arm length
++      const thetaUpper = s * 0.62 + side * 0.18;
++      const elbowX = shX + Math.sin(thetaUpper) * 5.8;
++      const elbowY = shY + Math.cos(thetaUpper) * 5.8;
++
++      const thetaFore = s * 0.72 + side * 0.12;
++      const wristX = elbowX + Math.sin(thetaFore) * 5.4;
++      const wristY = elbowY + Math.cos(thetaFore) * 5.4;
+ 
+       drawJointChain(
+         [
+@@ -2982,16 +2985,23 @@
+       const lift = player.moving ? Math.max(0, rawC) : 0; // Smooth passing-phase knee bend & lift (just like Side View `c > 0`!)
+ 
+       // Both hips start evenly under the hoodie hem (`hipY = -16 + bobY`) so one thigh never pokes up into the stomach!
+-      const hipX = side * 3.1 + swayX * 0.4;
++      const hipX = side * 3.2 + swayX * 0.45;
+       const hipY = -16.0 + bobY;
+-      // Pendulum knee & ankle movement with natural passing lift
+-      const thetaLeg = s * 0.22 + side * (0.04 + lift * 0.08);
+-      const kneeX = hipX + Math.sin(thetaLeg) * 6.8;
+-      const kneeY = hipY + Math.cos(thetaLeg) * 6.8 - lift * 1.6;
+-      const ankleX = side * 3.1 + Math.sin(thetaLeg) * 2.2;
+-      const ankleY = kneeY + 6.8 - lift * 2.2 + s * 1.2;
++      // Wider thigh swing (was 0.22 — too stiff). Closer to side-view 0.68, adapted for front/back.
++      const thetaThigh = s * 0.58 + Math.max(0, lift) * 0.22 + side * 0.03;
++      const L1 = 7.4;
++      const kneeX = hipX + Math.sin(thetaThigh) * L1 * 0.55;
++      const kneeY = hipY + Math.cos(thetaThigh) * L1 - lift * 2.4;
++      const kneeBend = player.moving
++        ? Math.max(0, Math.cos(legPhi - 0.28)) * 0.85 + (s < 0 ? -s * 0.12 : 0)
++        : 0.04;
++      const thetaCalf = thetaThigh - kneeBend;
++      const L2 = 7.2;
++      const ankleX = kneeX + Math.sin(thetaCalf) * (isUp ? -0.8 : 0.8) * Math.abs(s);
++      const ankleY = Math.min(-1.2, kneeY + Math.cos(thetaCalf) * L2 - lift * 1.8);
+ 
+       const isNearLeg = s >= 0;
+ 
+@@ -3012,7 +3022,7 @@
+       // Articulated Sneaker at (ankleX, ankleY)
+       const bx = Math.round(ankleX);
+       const by = Math.round(ankleY);
+-      if (lift > 0.45) {
++      if (lift > 0.35) {
+         // Lifted Foot in passing phase: raised sneaker with white rubber sole rim & tread
+         rectPx(bx - 3, by - 2, 6, 4, OUT_DARK[0], OUT_DARK[1], OUT_DARK[2]);
+         rectPx(bx - 2, by - 1, 4, 2, 238, 244, 252);
+@@ -4016,16 +4026,23 @@
+           const len = Math.hypot(moveX, moveY);
+           const nx = moveX / len;
+           const ny = moveY / len;
+-          const candX = Math.max(48, Math.min(WIDTH - 48, player.x + nx * walkSpeed * dt));
+-          const candY = Math.max(56, Math.min(HEIGHT - 48, player.y + ny * walkSpeed * dt));
+-          if (cellVal(Math.round(candX) >> 2, Math.round(candY) >> 2) !== 3) {
++          const step = walkSpeed * dt;
++          // Axis-separated collision: try X and Y independently so vertical walking
++          // slides along ponds/obstacles as smoothly as horizontal walking.
++          const candX = Math.max(48, Math.min(WIDTH - 48, player.x + nx * step));
++          const candY = Math.max(56, Math.min(HEIGHT - 48, player.y + ny * step));
++          const footCell = (px: number, py: number) =>
++            cellVal(Math.round(px) >> 2, Math.round(py) >> 2);
++          if (footCell(candX, player.y) !== 3) {
+             player.x = candX;
++          }
++          if (footCell(player.x, candY) !== 3) {
+             player.y = candY;
+           }
+           // Project a smooth stride target 36px ahead so tapping or holding keys animates legs with the exact same smooth continuity as mouse-click!
+           const aheadX = Math.max(48, Math.min(WIDTH - 48, player.x + nx * 36));
+           const aheadY = Math.max(56, Math.min(HEIGHT - 48, player.y + ny * 36));
+-          if (cellVal(Math.round(aheadX) >> 2, Math.round(aheadY) >> 2) !== 3) {
++          if (footCell(aheadX, aheadY) !== 3) {
+             player.target = { x: aheadX, y: aheadY };
+           }
+           if (moveX > 0) player.facingSign = -1;
